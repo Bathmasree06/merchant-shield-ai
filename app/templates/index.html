@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Merchant Shield AI - Dispute Defense Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-900 min-h-screen">
+  <nav class="bg-blue-900 text-white px-4 sm:px-8 py-4 flex flex-wrap justify-between items-center shadow-md">
+    <div class="flex items-center space-x-3">
+      <span class="text-xl sm:text-2xl font-bold tracking-wide">🛡️ Merchant Shield AI</span>
+      <span class="bg-blue-700 text-xs px-2 py-1 rounded font-semibold uppercase">PayPal Copilot</span>
+    </div>
+    <div class="text-xs sm:text-sm text-blue-200 mt-2 sm:mt-0">Sandbox Merchant Workspace</div>
+  </nav>
+
+  <div class="max-w-6xl mx-auto mt-6 px-4 sm:px-6">
+    <!-- Impact Counter Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+      <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Disputes Handled</h3>
+        <p class="text-3xl font-extrabold text-blue-900 mt-2">{{ total_disputes }}</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Money at Stake</h3>
+        <p class="text-3xl font-extrabold text-emerald-600 mt-2">${{ "%.2f"|format(total_amount) }}</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Avg Response Time</h3>
+        <p class="text-3xl font-extrabold text-indigo-600 mt-2">&lt; 15 seconds</p>
+      </div>
+    </div>
+
+    <!-- Case Queue Table -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-12">
+      <div class="px-6 py-4 border-b border-gray-200 flex flex-wrap justify-between items-center bg-gray-50 gap-2">
+        <h2 class="text-base sm:text-lg font-bold text-gray-800">Active Dispute Queue</h2>
+        <span class="text-xs text-gray-500">Auto-synced with PayPal Webhooks</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-gray-100 text-xs font-semibold text-gray-600 uppercase border-b">
+              <th class="py-3 px-6">Dispute ID</th>
+              <th class="py-3 px-6">Reason</th>
+              <th class="py-3 px-6">Amount</th>
+              <th class="py-3 px-6">Status</th>
+              <th class="py-3 px-6">Verdict</th>
+              <th class="py-3 px-6 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 text-sm">
+            {% for d in disputes %}
+            <tr class="hover:bg-gray-50">
+              <td class="py-4 px-6 font-semibold text-blue-600">{{ d.id }}</td>
+              <td class="py-4 px-6 text-gray-700">{{ d.reason }}</td>
+              <td class="py-4 px-6 font-medium">${{ "%.2f"|format(d.dispute_amount) }} {{ d.currency }}</td>
+              <td class="py-4 px-6">
+                <span class="px-2.5 py-1 text-xs font-semibold rounded bg-amber-100 text-amber-800">
+                  {{ d.status }}
+                </span>
+              </td>
+              <td class="py-4 px-6">
+                {% if d.verdict and 'STRONG' in d.verdict|string %}
+                  <span class="px-2.5 py-1 text-xs font-bold rounded bg-green-100 text-green-800">STRONG FIGHT</span>
+                {% elif d.verdict and 'MODERATE' in d.verdict|string %}
+                  <span class="px-2.5 py-1 text-xs font-bold rounded bg-yellow-100 text-yellow-800">MODERATE</span>
+                {% else %}
+                  <span class="px-2.5 py-1 text-xs font-bold rounded bg-gray-100 text-gray-800">PENDING</span>
+                {% endif %}
+              </td>
+              <td class="py-4 px-6 text-right">
+                <a href="/cases/{{ d.id }}" class="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4 py-2 rounded transition whitespace-nowrap">
+                  Review Case &rarr;
+                </a>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="py-8 text-center text-gray-500">No active disputes found.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

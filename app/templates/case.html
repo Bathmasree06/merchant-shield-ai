@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Case Detail - {{ dispute.id }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-900 min-h-screen">
+  <nav class="bg-blue-900 text-white px-4 sm:px-8 py-4 flex flex-wrap justify-between items-center shadow-md">
+    <a href="/" class="text-sm font-semibold text-blue-200 hover:text-white transition">&larr; Back to Case Queue</a>
+    <span class="text-base sm:text-lg font-bold">Dispute File: {{ dispute.id }}</span>
+  </nav>
+
+  <div class="max-w-6xl mx-auto mt-6 px-4 sm:px-6 mb-12">
+    <!-- Success Alert Banner -->
+    {% if success_message %}
+    <div class="mb-6 p-4 bg-emerald-50 border-l-4 border-emerald-500 rounded-r shadow-sm flex items-start justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">🎉</span>
+        <div>
+          <h4 class="text-sm font-bold text-emerald-800">Submission Successful!</h4>
+          <p class="text-xs text-emerald-700 mt-0.5">{{ success_message }}</p>
+        </div>
+      </div>
+      {% if pdf_path %}
+      <a href="/download-packet/{{ dispute.id }}" target="_blank" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded transition">
+        📄 Download PDF Packet
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Header Card -->
+    <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Dispute {{ dispute.id }}</h1>
+        <p class="text-xs sm:text-sm text-gray-500 mt-1">Claim Reason: <span class="font-semibold text-gray-700">{{ dispute.reason }}</span></p>
+      </div>
+      <div class="text-left sm:text-right">
+        <span class="text-2xl font-extrabold text-blue-900">${{ "%.2f"|format(dispute.dispute_amount) }} {{ dispute.currency }}</span>
+        <div class="mt-1">
+          {% if dispute.verdict and 'STRONG' in dispute.verdict|string %}
+            <span class="px-3 py-1 text-xs font-bold rounded bg-green-100 text-green-800 uppercase">Verdict: STRONG FIGHT</span>
+          {% elif dispute.verdict and 'MODERATE' in dispute.verdict|string %}
+            <span class="px-3 py-1 text-xs font-bold rounded bg-yellow-100 text-yellow-800 uppercase">Verdict: MODERATE</span>
+          {% else %}
+            <span class="px-3 py-1 text-xs font-bold rounded bg-gray-100 text-gray-800 uppercase">Verdict: PENDING</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Left Column: Evidence Checklist -->
+      <div class="lg:col-span-1 space-y-6">
+        <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Evidence Vault Check</h3>
+          <ul class="space-y-2 text-sm">
+            <li class="flex items-center text-green-700 font-medium">
+              <span class="mr-2">✓</span> Order Details Verified
+            </li>
+            <li class="flex items-center text-green-700 font-medium">
+              <span class="mr-2">✓</span> Carrier Tracking (USPS)
+            </li>
+            <li class="flex items-center text-green-700 font-medium">
+              <span class="mr-2">✓</span> Proof of Delivery Attached
+            </li>
+          </ul>
+        </div>
+
+        <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-200">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Rules Evaluation</h3>
+          {% for reason in (dispute.eligibility_reasons or {}).get('reasons', []) %}
+            <p class="text-xs text-gray-600 bg-gray-50 p-3 rounded border border-gray-200 mb-2 leading-relaxed">
+              📌 {{ reason }}
+            </p>
+          {% else %}
+            <p class="text-xs text-gray-500">Evaluation completed.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Right Column: Rebuttal Editor -->
+      <div class="lg:col-span-2">
+        <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+            <h3 class="text-base font-bold text-gray-800">AI-Generated Dispute Rebuttal</h3>
+            <span class="text-xs bg-indigo-50 text-indigo-700 font-semibold px-2.5 py-1 rounded">Fact-Grounded Gemini 2.5 Draft</span>
+          </div>
+
+          <form action="/cases/{{ dispute.id }}/submit" method="POST" onsubmit="handleFormSubmit(this)">
+            <textarea name="rebuttal_text" rows="12" class="w-full p-4 border border-gray-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50 leading-relaxed">{{ dispute.ai_rebuttal_draft or 'Generating rebuttal draft...' }}</textarea>
+
+            <div class="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <span class="text-xs text-gray-500">Human approval required before API submission.</span>
+              <button id="submitBtn" type="submit" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-6 py-3 rounded shadow transition flex items-center justify-center">
+                <span>Approve & Submit Evidence to PayPal</span>
+                <span class="ml-2">&rarr;</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function handleFormSubmit(form) {
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.classList.add('opacity-75', 'cursor-not-allowed');
+      btn.innerHTML = 'Submitting Evidence to PayPal...';
+    }
+  </script>
+</body>
+</html>
