@@ -145,7 +145,14 @@ async def paypal_webhook_handler(
     request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)
 ):
     body_bytes = await request.body()
-    is_simulator = request.headers.get("paypal-transmission-id") == "SIMULATOR"
+
+    # The simulator header skips signature checks, so it is OFF unless you turn it on
+    # explicitly (add `ALLOW_SIMULATOR: bool = False` to Settings and set it in .env).
+    allow_simulator = bool(getattr(settings, "ALLOW_SIMULATOR", False))
+    is_simulator = (
+        allow_simulator
+        and request.headers.get("paypal-transmission-id") == "SIMULATOR"
+    )
 
     if settings.PAYPAL_WEBHOOK_ID and not is_simulator:
         is_valid = await verify_webhook_signature(
@@ -217,7 +224,7 @@ async def test_eligibility_engine(db: Session = Depends(get_db)):
     if not order or not dispute:
         raise HTTPException(
             status_code=404,
-            detail="Seeded order or dispute not found. Call /seed-test-data and /test-trigger-dispute first.",
+            detail="Seeded order or dispute not found. Run python scripts/seed_demo.py first.",
         )
 
     shipments = db.query(Shipment).filter(Shipment.order_id == order.id).all()
@@ -336,12 +343,12 @@ async def submit_dispute_approval(
     rebuttal_text: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
-    """Handles human approval, saves text edits, builds PDF evidence packet, and updates dispute status."""
+    """Human approval: saves edits, builds the PDF packet, then submits to PayPal."""
     dispute = db.query(Dispute).filter(Dispute.id == dispute_id).first()
     if not dispute:
         raise HTTPException(status_code=404, detail="Dispute case not found")
 
-    # Update AI rebuttal draft if merchant modified it in textarea
+    # Keep the merchant's edits from the textarea
     if rebuttal_text:
         dispute.ai_rebuttal_draft = rebuttal_text
 
@@ -355,20 +362,65 @@ async def submit_dispute_approval(
         if dispute.order_id
         else []
     )
-    evidence_items = db.query(EvidenceItem).all()
+    # Only the evidence that belongs to this dispute's order
+    evidence_items = (
+        db.query(EvidenceItem)
+        .join(Shipment, EvidenceItem.shipment_id == Shipment.id)
+        .filter(Shipment.order_id == dispute.order_id)
+        .all()
+        if dispute.order_id
+        else []
+    )
 
-    # Generate PDF Evidence Packet
     pdf_path = generate_evidence_pdf(dispute, order, shipments, evidence_items)
 
-    # Mark status as UNDER_REVIEW
-    dispute.status = "UNDER_REVIEW"
+    is_demo_case = dispute.id.startswith("PP-D-DEMO")
+    success_message = None
+    error_message = None
+    new_status = None
+    submitted_to_paypal = False
 
-    audit = AuditLog(
-        dispute_id=dispute.id,
-        action="HUMAN_APPROVED_SUBMISSION",
-        details={"status": "UNDER_REVIEW", "pdf_generated": pdf_path},
+    if is_demo_case:
+        # Seeded case: PayPal has no such dispute, so we do not pretend to send it.
+        new_status = "UNDER_REVIEW"
+        success_message = (
+            "Demo case: evidence packet built and approved locally. "
+            "This seeded dispute does not exist at PayPal, so nothing was sent."
+        )
+    else:
+        shipment = shipments[0] if shipments else None
+        try:
+            await paypal_client.provide_evidence(
+                dispute_id=dispute.id,
+                evidence_type="PROOF_OF_FULFILLMENT",
+                notes=dispute.ai_rebuttal_draft or "",
+                carrier_name=shipment.carrier if shipment else None,
+                tracking_number=shipment.tracking_number if shipment else None,
+                pdf_path=pdf_path,
+            )
+            submitted_to_paypal = True
+            new_status = "UNDER_REVIEW"
+            success_message = "Evidence submitted to PayPal through the Disputes API."
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"PayPal provide-evidence failed for {dispute.id}: {exc}")
+            error_message = f"PayPal did not accept the evidence: {exc}"
+
+    if new_status:
+        dispute.status = new_status
+
+    db.add(
+        AuditLog(
+            dispute_id=dispute.id,
+            action="HUMAN_APPROVED_SUBMISSION",
+            details={
+                "status": dispute.status,
+                "pdf_generated": pdf_path,
+                "demo_case": is_demo_case,
+                "submitted_to_paypal": submitted_to_paypal,
+                "error": error_message,
+            },
+        )
     )
-    db.add(audit)
     db.commit()
 
     return templates.TemplateResponse(
@@ -376,7 +428,8 @@ async def submit_dispute_approval(
         name="case.html",
         context={
             "dispute": dispute,
-            "success_message": "Evidence packet successfully built and submitted to PayPal Sandbox!",
+            "success_message": success_message,
+            "error_message": error_message,
             "pdf_path": pdf_path,
         },
     )

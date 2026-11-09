@@ -23,7 +23,7 @@ async def generate_ai_rebuttal(
     reasons: List[str],
     evidence_data: List[Dict[str, Any]],
 ) -> str:
-    """Generates a fact-grounded seller rebuttal using Gemini 2.5 Flash."""
+    """Generates a fact-grounded seller rebuttal using Gemini 3.8 Flash."""
     try:
         client = get_gemini_client()
 
@@ -42,7 +42,7 @@ Please draft a professional rebuttal letter for PayPal Resolution Center based o
 """
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=context_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=REBUTTAL_SYSTEM_PROMPT,

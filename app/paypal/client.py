@@ -1,7 +1,13 @@
+import json
+import pathlib
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 import httpx
+
 from app.config import settings
+
+MAX_EVIDENCE_FILE_BYTES = 10 * 1024 * 1024  # PayPal: each evidence file must be under 10 MB
 
 
 class PayPalClient:
@@ -70,16 +76,68 @@ class PayPalClient:
                 json=json,
                 timeout=20.0,
             )
-            
+
             # 204 No Content handling
             if res.status_code == 204:
                 return {}
-                
+
             if res.status_code not in (200, 201, 202):
                 raise RuntimeError(
                     f"PayPal API {method} {endpoint} failed ({res.status_code}): {res.text}"
                 )
             return res.json()
+
+    async def provide_evidence(
+        self,
+        dispute_id: str,
+        evidence_type: str = "PROOF_OF_FULFILLMENT",
+        notes: str = "",
+        carrier_name: Optional[str] = None,
+        tracking_number: Optional[str] = None,
+        pdf_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Submits seller evidence with PayPal's Disputes API (multipart request).
+
+        Format follows PayPal's "Provide evidence" docs: a multipart request with a
+        JSON `input` part and the evidence document as `file1`. PayPal accepts this
+        only while the dispute status is WAITING_FOR_SELLER_RESPONSE.
+        """
+        token = await self.get_access_token()
+
+        evidence: Dict[str, Any] = {"evidence_type": evidence_type}
+        if notes:
+            evidence["notes"] = notes[:2000]  # keep notes short; check the API reference for the exact limit
+        if evidence_type == "PROOF_OF_FULFILLMENT" and carrier_name and tracking_number:
+            evidence["evidence_info"] = {
+                "tracking_info": [
+                    {"carrier_name": carrier_name, "tracking_number": tracking_number}
+                ]
+            }
+
+        files: Dict[str, Any] = {
+            "input": (None, json.dumps({"evidences": [evidence]}), "application/json"),
+        }
+
+        if pdf_path:
+            pdf = pathlib.Path(pdf_path)
+            if pdf.exists():
+                pdf_bytes = pdf.read_bytes()
+                if len(pdf_bytes) > MAX_EVIDENCE_FILE_BYTES:
+                    raise RuntimeError("Evidence PDF is larger than PayPal's 10 MB file limit.")
+                files["file1"] = (pdf.name, pdf_bytes, "application/pdf")
+
+        url = f"{self.base_url}/v1/customer/disputes/{dispute_id}/provide-evidence"
+        # Do NOT set Content-Type yourself: httpx adds the multipart boundary.
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+        async with httpx.AsyncClient() as client:
+            res = await client.post(url, headers=headers, files=files, timeout=60.0)
+
+        if res.status_code not in (200, 201, 202):
+            raise RuntimeError(
+                f"PayPal provide-evidence failed ({res.status_code}): {res.text}"
+            )
+        return res.json() if res.content else {}
 
 
 paypal_client = PayPalClient()
